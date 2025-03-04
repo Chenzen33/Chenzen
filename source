@@ -1,0 +1,379 @@
+local Window = Rayfield:CreateWindow({
+   Name = "Rayfield Example Window",
+   Icon = 0, -- Icon in Topbar. Can use Lucide Icons (string) or Roblox Image (number). 0 to use no icon (default).
+   LoadingTitle = "Rayfield Interface Suite",
+   LoadingSubtitle = "by Sirius",
+   Theme = "white", -- Check https://docs.sirius.menu/rayfield/configuration/themes
+
+   DisableRayfieldPrompts = false,
+   DisableBuildWarnings = false, -- Prevents Rayfield from warning when the script has a version mismatch with the interface
+
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = nil, -- Create a custom folder for your hub/game
+      FileName = "Big Hub"
+   },
+
+   Discord = {
+      Enabled = false, -- Prompt the user to join your Discord server if their executor supports it
+      Invite = "noinvitelink", -- The Discord invite code, do not include discord.gg/. E.g. discord.gg/ ABCD would be ABCD
+      RememberJoins = true -- Set this to false to make them join the discord every time they load it up
+   },
+
+   KeySystem = false, -- Set this to true to use our key system
+   KeySettings = {
+      Title = "Untitled",
+      Subtitle = "Key System",
+      Note = "No method of obtaining the key is provided", -- Use this to tell the user how to get a key
+      FileName = "Key", -- It is recommended to use something unique as other scripts using Rayfield may overwrite your key file
+      SaveKey = true, -- The user's key will be saved, but if you change the key, they will be unable to use your script
+      GrabKeyFromSite = false, -- If this is true, set Key below to the RAW site you would like Rayfield to get the key from
+      Key = {"Hello"} -- List of keys that will be accepted by the system, can be RAW file links (pastebin, github etc) or simple strings ("hello","key22")
+   }
+})
+
+local Tab = Window:CreateTab("Menu", 4483362458) -- Title, Image
+
+local Slider = Tab:CreateSlider({
+   Name = "Speed",
+   Range = {0, 200},
+   Increment = 10,
+   Suffix = "Speed",
+   CurrentValue = 10,
+   Flag = "Slider1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+   Callback = function(Value)
+   game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = Value
+   end,
+})
+
+local Players = game:GetService("Players")
+
+-- Function to get player names
+local function getPlayerNames()
+    local playerList = {}
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= Players.LocalPlayer then -- Exclude self
+            table.insert(playerList, player.Name)
+        end
+    end
+    return playerList
+end
+
+-- Create Dropdown
+local Dropdown = Tab:CreateDropdown({ 
+   Name = "TP to Player",
+   Options = getPlayerNames(), -- Populate with player names
+   CurrentOption = {},
+   MultipleOptions = false,
+   Flag = "Dropdown1", 
+   Callback = function(Selected)
+       local targetPlayer = Players:FindFirstChild(Selected[1])
+       if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+           local localPlayer = Players.LocalPlayer
+           if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
+               localPlayer.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0) -- TP slightly above
+           end
+       end
+   end,
+})
+
+-- Auto-update dropdown when players join/leave
+Players.PlayerAdded:Connect(function()
+    Dropdown:SetOptions(getPlayerNames())
+end)
+
+Players.PlayerRemoving:Connect(function()
+    Dropdown:SetOptions(getPlayerNames())
+end)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local aimKey = Enum.UserInputType.MouseButton2  -- Right-click to aim
+local aimSmoothing = 0.12  -- Lower value = faster aim
+local aimFOV = 150  -- Limits aim to enemies within this FOV
+
+local isAiming = false
+local autoAimEnabled = false  -- Toggle state
+local noRecoilEnabled = false -- Toggle state
+
+-- Toggle function (connected to UI)
+local Toggle = Tab:CreateToggle({
+   Name = "AUTO AIM NO RECOIL",
+   CurrentValue = false,
+   Flag = "Toggle1",
+   Callback = function(Value)
+       autoAimEnabled = Value
+       noRecoilEnabled = Value
+   end
+})
+
+-- Function to check if aim key is held
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.UserInputType == aimKey then
+        isAiming = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == aimKey then
+        isAiming = false
+    end
+end)
+
+-- Function to get the closest enemy within FOV
+local function getClosestEnemy()
+    local closestEnemy = nil
+    local shortestDistance = aimFOV  -- Limit search to within FOV range
+    
+    for _, target in pairs(Players:GetPlayers()) do
+        if target ~= player and target.Team ~= player.Team then
+            local character = target.Character
+            if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Head") then
+                local headPos = camera:WorldToViewportPoint(character.Head.Position)
+                local enemyPos = camera:WorldToViewportPoint(character.HumanoidRootPart.Position)
+                local distance = (Vector2.new(enemyPos.X, enemyPos.Y) - Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)).Magnitude
+                
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestEnemy = character.Head  -- Prioritize headshots
+                end
+            end
+        end
+    end
+    return closestEnemy
+end
+
+-- Auto-aim function
+RunService.RenderStepped:Connect(function()
+    if autoAimEnabled and isAiming then
+        local target = getClosestEnemy()
+        if target then
+            local targetPos = camera:WorldToViewportPoint(target.Position)
+            local smoothX = (targetPos.X - camera.ViewportSize.X / 2) * aimSmoothing
+            local smoothY = (targetPos.Y - camera.ViewportSize.Y / 2) * aimSmoothing
+            mousemoverel(smoothX, smoothY)
+        end
+    end
+end)
+
+-- Function to remove recoil from any weapon
+local function removeRecoil(weapon)
+    if noRecoilEnabled then
+        for _, v in pairs(weapon:GetDescendants()) do
+            if v:IsA("NumberValue") and v.Name:lower():find("recoil") then
+                v.Value = 0  -- Set recoil values to zero
+            elseif v:IsA("BodyVelocity") or v:IsA("BodyGyro") then
+                v:Destroy()  -- Remove recoil forces
+            end
+        end
+    end
+end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local ESPEnabled = false -- ESP toggle state
+local ESPObjects = {} -- Store ESP objects
+
+-- Function to create ESP
+local function CreateESP(player)
+    if player == LocalPlayer or ESPObjects[player] then return end
+    local character = player.Character or player.CharacterAdded:Wait()
+    if not character then return end
+
+    -- Billboard GUI for ESP Text
+    local espGui = Instance.new("BillboardGui", character)
+    espGui.Name = "ESP"
+    espGui.Size = UDim2.new(0, 200, 0, 50)
+    espGui.StudsOffset = Vector3.new(0, 2, 0)
+    espGui.AlwaysOnTop = true
+
+    local nameTag = Instance.new("TextLabel", espGui)
+    nameTag.Size = UDim2.new(1, 0, 1, 0)
+    nameTag.BackgroundTransparency = 1
+    nameTag.TextStrokeTransparency = 0.5
+    nameTag.TextScaled = true
+    nameTag.Font = Enum.Font.SourceSansBold
+
+    -- Chams (Highlight Effect)
+    local highlight = Instance.new("Highlight", character)
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+
+    ESPObjects[player] = { espGui = espGui, highlight = highlight }
+
+    -- Update ESP details
+    local function UpdateESP()
+        if not ESPEnabled or not character or not character:FindFirstChild("HumanoidRootPart") then
+            espGui.Enabled = false
+            highlight.Enabled = false
+            return
+        end
+        
+        local humanoid = character:FindFirstChild("Humanoid")
+        if humanoid then
+            local distance = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - character.HumanoidRootPart.Position).Magnitude)
+            local health = math.floor(humanoid.Health)
+            
+            nameTag.Text = string.format("%s | %d HP | %d studs", player.Name, health, distance)
+
+            -- Team Color (Green = Team, Red = Enemy)
+            local isFriendly = player.Team == LocalPlayer.Team
+            nameTag.TextColor3 = isFriendly and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+            highlight.FillColor = isFriendly and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+            highlight.OutlineColor = Color3.fromRGB(0, 0, 0)
+
+            espGui.Enabled = true
+            highlight.Enabled = true
+        end
+    end
+
+    -- Keep updating ESP
+    RunService.RenderStepped:Connect(UpdateESP)
+end
+
+-- Function to remove ESP
+local function RemoveESP(player)
+    if ESPObjects[player] then
+        ESPObjects[player].espGui:Destroy()
+        ESPObjects[player].highlight:Destroy()
+        ESPObjects[player] = nil
+    end
+end
+
+-- Apply ESP to all players
+for _, player in pairs(Players:GetPlayers()) do
+    if ESPEnabled then
+        CreateESP(player)
+    end
+end
+
+-- Detect new players
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        if ESPEnabled then
+            CreateESP(player)
+        end
+    end)
+end)
+
+-- Toggle ESP UI Integration
+local ToggleESP = Tab:CreateToggle({
+   Name = "ESP",
+   CurrentValue = false,
+   Flag = "Toggle1",
+   Callback = function(Value)
+       ESPEnabled = Value
+       
+       if ESPEnabled then
+           -- Enable ESP for all players
+           for _, player in pairs(Players:GetPlayers()) do
+               CreateESP(player)
+           end
+       else
+           -- Remove ESP from all players
+           for _, player in pairs(ESPObjects) do
+               RemoveESP(player)
+           end
+       end
+   end,
+})
+
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local AutoRejoinEnabled = false -- Auto-rejoin toggle state
+
+-- Function to rejoin the server
+local function RejoinServer()
+    TeleportService:Teleport(game.PlaceId, LocalPlayer)
+end
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+
+local FastReloadEnabled = false
+
+-- Function to force fast reload
+local function SetFastReload(state)
+    FastReloadEnabled = state
+    while FastReloadEnabled do
+        task.wait(0.05) -- Faster refresh rate
+
+        if LocalPlayer and LocalPlayer.Character then
+            for _, tool in pairs(LocalPlayer.Character:GetChildren()) do
+                if tool:IsA("Tool") and tool:FindFirstChild("Reload") then
+                    -- Simulate quick weapon swap to cancel reload animation
+                    tool.Parent = LocalPlayer.Backpack
+                    task.wait(0.01) -- Small delay
+                    tool.Parent = LocalPlayer.Character
+                end
+            end
+        end
+    end
+end
+
+-- Toggle Fast Reload Button
+local ToggleFastReload = Tab:CreateToggle({
+    Name = "Fast Reload",
+    CurrentValue = false,
+    Flag = "FastReloadToggle",
+    Callback = function(Value)
+        SetFastReload(Value)
+    end,
+})
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Function to kill the local player
+local function KillLocalPlayer()
+    if LocalPlayer and LocalPlayer.Character then
+        LocalPlayer.Character:BreakJoints() -- Instantly kills the player
+    end
+end
+
+-- Create the Kill Button
+local KillButton = Tab:CreateButton({
+    Name = "Kill Yourself",
+    Callback = function()
+        KillLocalPlayer()
+    end
+})
+
+
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Function to instantly heal the player
+local function HealPlayer()
+    if LocalPlayer and LocalPlayer.Character then
+        local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.Health = humanoid.MaxHealth -- Fully heal the player
+        end
+    end
+end
+
+-- Create the Heal Button
+local HealButton = Tab:CreateButton({
+    Name = "Heal Now",
+    Callback = function()
+        HealPlayer()
+    end
+})
+
+
+-- Manual Rejoin Button
+local RejoinButton = Tab:CreateButton({
+    Name = "Rejoin Server",
+    Callback = function()
+        RejoinServer()
+    end
+})
